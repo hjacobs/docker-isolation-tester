@@ -135,6 +135,12 @@ def make_action(funcs, f):
             funcs.remove(f)
     return customAction
 
+def add(funcs, f):
+    class customAction(argparse.Action):
+        def __call__(self, parser, args, values, option_string=None):
+            funcs.append(f)
+    return customAction
+
 def main():
     logging.basicConfig(level=logging.DEBUG)
     functions = []
@@ -142,10 +148,17 @@ def main():
         if name.startswith('test_'):
             f = globals().get(name)
             functions.append(f)
+    all_functions = sorted(functions, key=lambda f: f.__name__)
     parser = argparse.ArgumentParser()
-    for f in sorted(functions, key=lambda f: f.__name__):
+    for f in all_functions:
         parser.add_argument('--no-{}'.format(f.__name__[len('test_'):]), nargs=0, action=make_action(functions, f))
+    for f in all_functions:
+        parser.add_argument('--with-{}'.format(f.__name__[len('test_'):]), nargs=0, action=add(functions, f))
     args = parser.parse_args()
+
+
+    if len(functions) > len(all_functions):
+        functions = functions[len(all_functions):]
 
     for f in sorted(functions, key=lambda f: f.__name__):
         logging.info('Running %s..', f.__name__)
