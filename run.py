@@ -106,12 +106,10 @@ def test_memory():
 
 def test_internet():
     import socket
-    sock = socket.socket()
     # Google DNS server
     addr = ('8.8.8.8', 53)
     logging.info('Checking connect to %s..', addr)
-    sock.connect(addr)
-    sock.close()
+    sock = socket.create_connection(addr, 5)
 
 def test_network():
     import netifaces

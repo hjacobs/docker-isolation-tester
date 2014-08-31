@@ -14,3 +14,10 @@ This script tries to test the container limits:
 
     docker build -t dit .
     docker run --memory=30M -u nobody -t dit
+
+Restricting network access:
+
+.. code:: bash
+    sudo useradd --uid 1234 testapp
+    sudo iptables -A OUTPUT -m owner --uid-owner testapp -j DROP
+    docker run --net=host --memory=30M -u 1234 -t dit
