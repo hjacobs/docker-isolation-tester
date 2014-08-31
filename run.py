@@ -9,6 +9,14 @@ import netaddr
 import subprocess
 import time
 
+DRY_RUN = False
+
+def real_run():
+    if DRY_RUN:
+        print('** DRY-RUN **')
+        return False
+    return True
+
 def test_hostname():
     with open('/etc/hostname') as fd:
         hostname = fd.read().strip()
@@ -18,10 +26,20 @@ def test_user():
     p = psutil.Process()
     logging.info('Running as %s', p.username())
 
+def test_resolvconf():
+    with open('/etc/resolv.conf') as fd:
+        resolv = fd.read().strip()
+    logging.info('resolv.conf is %s', resolv)
+
+def test_dns():
+    import socket
+    socket.gethostbyname('google.com')
+
 def test_disk():
     logging.info('Checking whether writing to / is possible..')
-    with open('/test-file', 'wb') as fd:
-        fd.write(1)
+    if real_run():
+        with open('/test-file', 'wb') as fd:
+            fd.write(1)
 
 def test_mounts():
     with open('/proc/mounts') as fd:
@@ -33,24 +51,26 @@ def test_diskio():
     start = time.time()
     bs = 4096
     count = 400000
-    subprocess.check_call('dd if=/dev/zero of={} bs={} count={} && sync'.format(fn, bs, count), shell=True)
-    duration = time.time() - start
-    bytes_per_sec = (bs*count)/duration
-    logging.info('File write took %.2f seconds (%d MiB/s)', duration, bytes_per_sec // (1024*1024))
-    os.unlink(fn)
+    if real_run():
+        subprocess.check_call('dd if=/dev/zero of={} bs={} count={} && sync'.format(fn, bs, count), shell=True)
+        duration = time.time() - start
+        bytes_per_sec = (bs*count)/duration
+        logging.info('File write took %.2f seconds (%d MiB/s)', duration, bytes_per_sec // (1024*1024))
+        os.unlink(fn)
 
 def test_fork():
     limits = resource.getrlimit(resource.RLIMIT_NPROC)
     maxprocs = min(limits[1], 1024)
     cmd = os.path.join(os.path.dirname(__file__), 'fork.py')
     logging.info('Trying to fork %d processes..', maxprocs)
-    try:
-        subprocess.check_call('{} {} > /tmp/fork.log'.format(cmd, maxprocs), shell=True, timeout=60)
-    except Exception:
-        logging.exception('Failed to fork')
-    with open('/tmp/fork.log') as fd:
-        allocated = fd.readlines()[-1].strip()
-    logging.info('Forked %s processes', allocated)
+    if real_run():
+        try:
+            subprocess.check_call('{} {} > /tmp/fork.log'.format(cmd, maxprocs), shell=True, timeout=60)
+        except Exception:
+            logging.exception('Failed to fork')
+        with open('/tmp/fork.log') as fd:
+            allocated = fd.readlines()[-1].strip()
+        logging.info('Forked %s processes', allocated)
 
 def test_rlimits():
     for k, v in sorted(resource.__dict__.items()):
@@ -61,23 +81,24 @@ def test_rlimits():
     limits = resource.getrlimit(resource.RLIMIT_NOFILE)
     maxfiles = min(limits[1], 8192)
     logging.info('Trying to open %d files..', maxfiles)
-    i = 0
-    try:
-        # list is needed to keep files open (prevent GC)
-        handles = []
-        for i in range(maxfiles):
-            fd = open('/tmp/file-{}'.format(i), 'w')
-            fd.write('1')
-            handles.append(fd)
-            if i > 0 and i % 1000 == 0:
-                logging.debug('Opened %d files', i)
-    except IOError:
-        logging.exception('Could open %s files', i)
-    for i in range(maxfiles):
+    if real_run():
+        i = 0
         try:
-            os.unlink('/tmp/file-{}'.format(i))
-        except:
-            pass
+            # list is needed to keep files open (prevent GC)
+            handles = []
+            for i in range(maxfiles):
+                fd = open('/tmp/file-{}'.format(i), 'w')
+                fd.write('1')
+                handles.append(fd)
+                if i > 0 and i % 1000 == 0:
+                    logging.debug('Opened %d files', i)
+        except IOError:
+            logging.exception('Could open %s files', i)
+        for i in range(maxfiles):
+            try:
+                os.unlink('/tmp/file-{}'.format(i))
+            except:
+                pass
 
 def test_cpu():
     logging.info('Running CPU benchmark..')
@@ -96,13 +117,14 @@ def test_memory():
     logging.info('Memory: %d MiB (%d MB)', mem // MiB, mem // MB)
     logging.info('Trying to allocate %s Bytes..', mem)
     cmd = os.path.join(os.path.dirname(__file__), 'memtest.py')
-    try:
-        subprocess.check_call('{} {} > /tmp/memtest.log'.format(cmd, mem), shell=True)
-    except Exception:
-        logging.exception('Failed to allocate memory')
-    with open('/tmp/memtest.log') as fd:
-        allocated = fd.readlines()[-1].strip()
-    logging.info('Could allocate %s', allocated)
+    if real_run():
+        try:
+            subprocess.check_call('{} {} > /tmp/memtest.log'.format(cmd, mem), shell=True)
+        except Exception:
+            logging.exception('Failed to allocate memory')
+        with open('/tmp/memtest.log') as fd:
+            allocated = fd.readlines()[-1].strip()
+        logging.info('Could allocate %s', allocated)
 
 def test_internet():
     import socket
@@ -142,7 +164,8 @@ def add(funcs, f):
     return customAction
 
 def main():
-    logging.basicConfig(level=logging.DEBUG)
+    global DRY_RUN
+
     functions = []
     for name in globals().keys():
         if name.startswith('test_'):
@@ -154,8 +177,18 @@ def main():
         parser.add_argument('--no-{}'.format(f.__name__[len('test_'):]), nargs=0, action=make_action(functions, f))
     for f in all_functions:
         parser.add_argument('--with-{}'.format(f.__name__[len('test_'):]), nargs=0, action=add(functions, f))
+
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument('-v', '--verbose', help='Verbose (debug) logging', action='store_const', const=logging.DEBUG,
+                            dest='loglevel')
+    group.add_argument('-q', '--quiet', help='Silent mode, only log warnings', action='store_const',
+                            const=logging.WARN, dest='loglevel')
+    parser.add_argument('--dry-run', help='Noop, do not write anything', action='store_true')
     args = parser.parse_args()
 
+    DRY_RUN = args.dry_run
+
+    logging.basicConfig(level=args.loglevel or logging.INFO)
 
     if len(functions) > len(all_functions):
         functions = functions[len(all_functions):]
