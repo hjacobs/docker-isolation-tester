@@ -3,6 +3,8 @@
 import argparse
 import logging
 import os
+import psutil
+import resource
 import netaddr
 import subprocess
 import time
@@ -13,7 +15,6 @@ def test_hostname():
     logging.info('Hostname is %s', hostname)
 
 def test_user():
-    import psutil
     p = psutil.Process()
     logging.info('Running as %s', p.username())
 
@@ -38,9 +39,20 @@ def test_diskio():
     logging.info('File write took %.2f seconds (%d MiB/s)', duration, bytes_per_sec // (1024*1024))
     os.unlink(fn)
 
+def test_fork():
+    limits = resource.getrlimit(resource.RLIMIT_NPROC)
+    maxprocs = min(limits[1], 1024)
+    cmd = os.path.join(os.path.dirname(__file__), 'fork.py')
+    logging.info('Trying to fork %d processes..', maxprocs)
+    try:
+        subprocess.check_call('{} {} > /tmp/fork.log'.format(cmd, maxprocs), shell=True, timeout=60)
+    except Exception:
+        logging.exception('Failed to fork')
+    with open('/tmp/fork.log') as fd:
+        allocated = fd.readlines()[-1].strip()
+    logging.info('Forked %s processes', allocated)
 
 def test_rlimits():
-    import resource
     for k, v in sorted(resource.__dict__.items()):
         if k.startswith('RLIMIT_'):
             val = resource.getrlimit(v)
@@ -61,6 +73,11 @@ def test_rlimits():
                 logging.debug('Opened %d files', i)
     except IOError:
         logging.exception('Could open %s files', i)
+    for i in range(maxfiles):
+        try:
+            os.unlink('/tmp/file-{}'.format(i))
+        except:
+            pass
 
 def test_cpu():
     logging.info('Running CPU benchmark..')
@@ -81,7 +98,7 @@ def test_memory():
     cmd = os.path.join(os.path.dirname(__file__), 'memtest.py')
     try:
         subprocess.check_call('{} {} > /tmp/memtest.log'.format(cmd, mem), shell=True)
-    except Exception as e:
+    except Exception:
         logging.exception('Failed to allocate memory')
     with open('/tmp/memtest.log') as fd:
         allocated = fd.readlines()[-1].strip()
@@ -110,8 +127,8 @@ def test_network():
             nm = nmap.PortScanner()
             net = netaddr.IPNetwork('{}/{}'.format(a['addr'], a['netmask']))
             logging.info('Found address %s', net)
-            nm.scan(hosts=str(net), arguments='-sn -PE')
-            print(nm.all_hosts())
+            #nm.scan(hosts=str(net), arguments='-sn -PE')
+            #print(nm.all_hosts())
 
 
 def make_action(funcs, f):
