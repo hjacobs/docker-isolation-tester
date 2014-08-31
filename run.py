@@ -5,6 +5,7 @@ import logging
 import os
 import psutil
 import resource
+import re
 import netaddr
 import subprocess
 import time
@@ -143,9 +144,11 @@ def test_network():
             continue
         addrs = netifaces.ifaddresses(iface)
         print(addrs)
-        for a in addrs[netifaces.AF_INET]:
+        for a in addrs[netifaces.AF_INET] + addrs[netifaces.AF_INET6]:
             nm = nmap.PortScanner()
-            net = netaddr.IPNetwork('{}/{}'.format(a['addr'], a['netmask']))
+            # somehow we can IPv6 addresses with '%eth0' suffix
+            ip = re.sub('%.*', '', a['addr'])
+            net = netaddr.IPNetwork('{}/{}'.format(ip, a['netmask']))
             logging.info('Found address %s', net)
             #nm.scan(hosts=str(net), arguments='-sn -PE')
             #print(nm.all_hosts())
