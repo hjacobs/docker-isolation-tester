@@ -12,12 +12,14 @@ chunks = [None] * (mem // MIB)
 proc = psutil.Process()
 mi = proc.memory_info()
 print(mi.rss, mi.vms)
+sys.stdout.flush()
 
 for i in range(len(chunks)):
     data = b'0' * MIB
     chunks[i] = data
     mi = proc.memory_info()
     print(mi.rss, mi.vms)
+    sys.stdout.flush()
     if mi.vms > mem:
         break
 

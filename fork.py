@@ -14,6 +14,7 @@ for i in range(n):
         time.sleep(10)
         sys.exit(0)
     print(i+1)
+    sys.stdout.flush()
     pids.append(pid)
 
 for pid in pids:
